@@ -1,0 +1,153 @@
+---
+title: "Machine Learning - Project"
+author: "Jeff Currier"
+date: "January 30, 2016"
+output: html_document
+---
+
+#Summary
+
+###Background
+
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement - a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, your goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. More information is available from the website here: http://groupware.les.inf.puc-rio.br/har (see the section on the Weight Lifting Exercise Dataset).
+
+###The Data
+The data for this project come from this source: http://groupware.les.inf.puc-rio.br/har. If you use the document you create for this class for any purpose please cite them as they have been very generous in allowing their data to be used for this kind of assignment.
+
+###The Goal
+The goal of your project is to predict the manner in which they did the exercise. This is the "classe" variable in the training set. You may use any of the other variables to predict with. You should create a report describing how you built your model, how you used cross validation, what you think the expected out of sample error is, and why you made the choices you did. You will also use your prediction model to predict 20 different test cases.
+
+##Approach to Cross Validation
+The approach is simple.  Split the training set into 2 parts (60% Training and 40% Testing).  This will enable the models to be run against a slice of the training set independentaly and to help determine the best fit.
+
+
+#Loading of Libraries and data
+
+```{r Requirements}
+
+##Library requirements
+library(caret)
+library(randomForest)
+library(rpart) 
+library(rpart.plot)
+library(RColorBrewer)
+library(rattle)
+library(ROCR)
+
+####Download and Load the files with invalid data removed
+trainUrl <- "http://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+testUrl <- "http://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+training_raw <- read.csv(url(trainUrl), na.strings=c("NA","#DIV/0!",""))
+Testing <- read.csv(url(testUrl), na.strings=c("NA","#DIV/0!",""))
+
+####Cross validation setup
+temp <- createDataPartition(y=training_raw$classe, p=0.6, list=FALSE)
+Training <- training_raw[temp, ]; Training_testset <- training_raw[-temp, ]
+dim(Training); dim(Training_testset)
+
+```
+
+
+#Data Pre-processing / transformations
+
+Several steps are taken here to get the data ready for predications:
+
+1 - Removing Near Zero Variables
+2 - Remove any NA / unusable data
+3 - Remove the first column since it will skew the models - no value
+4 - Apply these to the other datasets (Training_testset and Testing)
+
+```{r Preprocessing}
+
+#PreProcessing of the data
+
+## Clean Near Zero Columns
+NZV <- nearZeroVar(Training, names = TRUE)
+Training <- Training[, -which(names(Training) %in% NZV)]
+rm(NZV)
+
+## Remove any sparce or unusable data (e.g. NAs)
+
+###Loop over the data to find where > 75% of the data is NA and then remove the column
+temp <- Training
+for(i in 1:length(Training)) {
+        if( sum( is.na( Training[, i] ) ) /nrow(Training) > .75 ) {
+        for(j in 1:length(temp)) {
+            if( length( grep(names(Training[i]), names(temp)[j]) ) ==1)  {
+                temp <- temp[ , -j] #Removes column
+            }   
+        } 
+    }
+}
+
+dim(temp)
+Training <- temp
+rm(temp)
+
+##Remove first column since there is no predictive value to that column
+Training <- Training[c(-1)]
+
+###Remove the columns from the Training_testset and Testing
+Training_testset <- Training_testset[colnames(Training)]
+temp <- colnames(Training[, -58])
+Testing <- Testing[temp]
+rm(temp)
+
+```
+
+
+#Predictions / algorithms
+
+1. Random Forest
+  - Started with RF as overfitting is a concern and RF generalize better and reduces the overfitting concern
+2. Decision Tree
+  - Can make visual sense and are pretty simple and to the point in approach
+  - Given the number of varibles this may not be the best approach
+      - could reduce the variables to support but other models show better accuracy
+
+```{r predictions}
+
+#Predictions
+
+##1 Random Forests
+
+bestmtry <- tuneRF(Training[-58], Training$classe, ntreeTry=100, stepFactor=1.5,improve=0.01, trace=FALSE, plot=TRUE, dobest=TRUE)
+
+rfModel <- randomForest(classe ~. , data=Training, ntree=1000, mtry=0, keep.forest=TRUE, importance=TRUE)
+
+rfResult <- predict(rfModel, Training_testset, type = "class")
+confusionMatrix(rfResult, Training_testset$classe)
+
+#Plots the items in order of importance
+varImpPlot(rfModel)
+
+
+##2 Decision Tree
+
+dtModel <- rpart(classe ~ ., data=Training, method="class")
+
+fancyRpartPlot(dtModel)
+
+dtResult <- predict(dtModel, Training_testset, type = "class")
+
+confusionMatrix(dtResult, Training_testset$classe)
+
+
+```
+
+#Final Predictions against Testing set
+
+###Alorithm chosen was Random Forest due to the extremly high accuracy rate
+
+Final results tested by submitting quiz scores (20 out of 20)
+
+```{r final}
+
+#had to set the factor levels to get an output
+levels(Testing$cvtd_timestamp) <- levels(Training$cvtd_timestamp)
+
+FinalResult <- predict(rfModel, Testing, type = "class")
+
+FinalResult
+
+```
